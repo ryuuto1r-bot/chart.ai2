@@ -6,6 +6,10 @@
     <title>Cryptocurrency Integrated Analysis Tool - 改良版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -25,12 +29,11 @@
         .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: #4f46e5; }
         input:checked + .slider:before { transform: translateX(22px); }
-        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 1050; }
         .toast { background-color: #1f2937; color: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-left: 4px solid; margin-bottom: 10px; opacity: 0; transform: translateX(100%); animation: slideIn 0.5s forwards; }
         .toast.success { border-color: #22c55e; } .toast.error { border-color: #ef4444; } .toast.info { border-color: #3b82f6; }
         @keyframes slideIn { to { opacity: 1; transform: translateX(0); } }
         
-        /* Sentiment Meter */
         .meter-container { width: 200px; height: 100px; position: relative; }
         .meter-bg, .meter-value { width: 200px; height: 100px; border-radius: 100px 100px 0 0; position: absolute; top: 0; left: 0; }
         .meter-bg { background: linear-gradient(to right, #ef4444, #facc15, #22c55e); }
@@ -46,7 +49,6 @@
             animation: flash-yellow 1.5s infinite;
         }
         
-        /* Price Ticker */
         .price-ticker {
             overflow: hidden;
             position: relative;
@@ -86,6 +88,22 @@
             height: 100%;
             border-radius: 9999px;
             transition: width 0.3s ease-in-out;
+        }
+        .timeframe-btn {
+             padding: 4px 8px;
+             font-size: 12px;
+             border-radius: 6px;
+             background-color: #4b5563;
+             color: #d1d5db;
+             transition: background-color 0.2s;
+        }
+        .timeframe-btn:hover {
+            background-color: #6b7280;
+        }
+        .timeframe-btn.active {
+            background-color: #6366f1;
+            color: white;
+            font-weight: bold;
         }
 
         @media (max-width: 768px) {
@@ -216,6 +234,24 @@
         </main>
         
         <!-- Modals -->
+        <div id="chart-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl h-3/4 flex flex-col border border-gray-700">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                    <h3 class="text-lg font-bold text-white" id="chart-modal-title">チャート分析</h3>
+                    <div id="chart-timeframe-selector" class="flex-grow flex justify-center gap-1">
+                        <!-- Timeframe buttons will be populated by JS -->
+                    </div>
+                    <button id="close-chart-modal" class="text-gray-400 hover:text-white text-2xl font-bold">&times;</button>
+                </div>
+                <div class="flex-1 p-4 relative">
+                    <div id="chart-loading-overlay" class="absolute inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center hidden z-10">
+                        <p class="text-white text-lg">チャートデータを読み込み中...</p>
+                    </div>
+                    <canvas id="chart-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+
         <div id="trade-entry-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
             <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-sm border border-gray-700">
                 <div class="p-6 space-y-4">
@@ -234,7 +270,7 @@
 
         <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
             <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-700">
-                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">設定＆バックテスト</h3><button id="close-settings-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">設定＆バックテスト</h3><button id="close-settings-modal" class="text-gray-400 hover:text-white text-2xl font-bold">&times;</button></div>
                 <div class="p-6 overflow-y-auto text-gray-300 space-y-6">
                     <div>
                         <h3 class="text-xl font-bold text-white mb-4">APIキー設定</h3>
@@ -262,7 +298,7 @@
         </div>
         <div id="qa-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
             <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-700">
-                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">Q&A ヘルプ</h3><button id="close-qa-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">Q&A ヘルプ</h3><button id="close-qa-modal" class="text-gray-400 hover:text-white text-2xl font-bold">&times;</button></div>
                 <div class="p-6 overflow-y-auto text-gray-300">
                     <h3 class="text-xl font-bold text-white mb-4">AIヘルプアシスタント</h3>
                     <p class="text-gray-400 mb-4">このツールや仮想通貨に関する質問を入力してください。</p>
@@ -276,7 +312,7 @@
         </div>
         <div id="notifications-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
             <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-md border border-gray-700">
-                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">通知設定</h3><button id="close-notifications-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">通知設定</h3><button id="close-notifications-modal" class="text-gray-400 hover:text-white text-2xl font-bold">&times;</button></div>
                 <div class="p-6 space-y-4 text-gray-300">
                     <div class="flex items-center justify-between">
                         <label for="desktop-notify-toggle">デスクトップ通知</label>
@@ -344,9 +380,11 @@ window.addEventListener('load', () => {
     const settingsModal = document.getElementById('settings-modal');
     const qaModal = document.getElementById('qa-modal');
     const notificationsModal = document.getElementById('notifications-modal');
+    const chartModal = document.getElementById('chart-modal');
     const closeSettingsModal = document.getElementById('close-settings-modal');
     const closeQaModal = document.getElementById('close-qa-modal');
     const closeNotificationsModal = document.getElementById('close-notifications-modal');
+    const closeChartModal = document.getElementById('close-chart-modal');
     const customizationForm = document.getElementById('customization-form');
     const saveSettingsBtn = document.getElementById('save-settings-btn');
     const apiKeyInput = document.getElementById('api-key-input');
@@ -366,6 +404,9 @@ window.addEventListener('load', () => {
     const notifyThresholdInput = document.getElementById('notify-threshold');
     const notifyThresholdValue = document.getElementById('notify-threshold-value');
     const saveNotifySettingsBtn = document.getElementById('save-notify-settings-btn');
+    const chartTimeframeSelector = document.getElementById('chart-timeframe-selector');
+    const chartLoadingOverlay = document.getElementById('chart-loading-overlay');
+
 
     // --- State Variables ---
     const PAIRS_TO_ANALYZE = ['BTC', 'ETH', 'XRP', 'SOL', 'ADA', 'DOGE'];
@@ -380,8 +421,9 @@ window.addEventListener('load', () => {
     let jpyRate = 150; // Default rate, will be updated
     let audioContext;
     let lastNotifiedSignal = {};
+    let chartInstance = null;
     let analysisSettings = JSON.parse(localStorage.getItem('analysisSettings')) || {
-        apiKey: '17922c0f47beef7ca579bd2f0da8b8673599b5c08c22456ca54edeaf2c113f30',
+        apiKey: '17922c0f47beef7ca579bd2f0da8b8673599b5c08c22456ca54edeaf2c113f30', // API Key set here
         weights: { ema: 1.5, macd: 1.5, rsi: 1.0, stoch: 1.0, bb: 1.0, ichimoku: 2.0, vwap: 2.0, chartPatterns: 2.5, atr: 1.0 },
         params: {
             rsiPeriod: 14, rsiOverbought: 70, rsiOversold: 30,
@@ -415,7 +457,8 @@ window.addEventListener('load', () => {
         try {
             const aggParam = aggregate > 1 ? `&aggregate=${aggregate}` : '';
             const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
-            const url = `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${symbol}&tsym=USD&limit=${limit}${aggParam}${apiKeyParam}`;
+            const originalUrl = `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${symbol}&tsym=USD&limit=${limit}${aggParam}${apiKeyParam}`;
+            const url = `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`API Error: ${response.status}`);
             const data = await response.json();
@@ -431,7 +474,8 @@ window.addEventListener('load', () => {
     async function fetchCurrentPrice(symbols) {
         try {
             const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
-            const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symbols.join(',')}&tsyms=USD${apiKeyParam}`;
+            const originalUrl = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symbols.join(',')}&tsyms=USD${apiKeyParam}`;
+            const url = `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`API Error: ${response.status}`);
             const data = await response.json();
@@ -445,7 +489,8 @@ window.addEventListener('load', () => {
     async function updateJpyRate() {
         try {
             const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
-            const url = `https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=JPY${apiKeyParam}`;
+            const originalUrl = `https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=JPY${apiKeyParam}`;
+            const url = `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
             const response = await fetch(url);
             const data = await response.json();
             if (data.JPY) {
@@ -548,8 +593,8 @@ window.addEventListener('load', () => {
     autoRefreshToggle.addEventListener('change', () => {
         if (autoRefreshToggle.checked) {
             runAnalysisBtn.disabled = true;
-            performAnalysis();
-            autoRefreshInterval = setInterval(performAnalysis, 60000);
+            performAnalysis(true); // Run immediately then start timer
+            autoRefreshInterval = setInterval(() => performAnalysis(true), 60000);
             startCountdown();
         } else {
             runAnalysisBtn.disabled = false;
@@ -572,21 +617,23 @@ window.addEventListener('load', () => {
     Object.entries(tabs).forEach(([key, tab]) => {
         tab.addEventListener('click', () => {
             Object.values(panels).forEach(p => p.classList.add('hidden'));
-            Object.values(tabs).forEach(t => t.classList.remove('active'));
+            Object.values(tabs).forEach(t => t.classList.remove('active', 'border-indigo-500'));
             panels[key].classList.remove('hidden');
-            tab.classList.add('active');
+            tab.classList.add('active', 'border-indigo-500');
         });
     });
     
     resetHistoryBtn.addEventListener('click', () => {
-        createToast('全履歴をリセットしました。', 'info');
-        signalHistory = []; analysisHistory = []; tradeHistory = [];
-        localStorage.removeItem('signalHistory');
-        localStorage.removeItem('analysisHistory');
-        localStorage.removeItem('tradeHistory');
-        updateAccuracyUI();
-        populateHistoryPanel();
-        populateTradeHistoryPanel();
+        if (confirm('本当にすべての履歴をリセットしますか？この操作は元に戻せません。')) {
+            createToast('全履歴をリセットしました。', 'info');
+            signalHistory = []; analysisHistory = []; tradeHistory = [];
+            localStorage.removeItem('signalHistory');
+            localStorage.removeItem('analysisHistory');
+            localStorage.removeItem('tradeHistory');
+            updateAccuracyUI();
+            populateHistoryPanel();
+            populateTradeHistoryPanel();
+        }
     });
 
     document.body.addEventListener('click', (e) => {
@@ -597,6 +644,10 @@ window.addEventListener('load', () => {
         if (e.target.matches('.close-position-btn')) {
             const { pair } = e.target.dataset;
             closePositionManually(pair);
+        }
+        if (e.target.matches('.view-chart-btn')) {
+            const { pair, takeprofit, stoploss } = e.target.dataset;
+            showChartModal(pair, parseFloat(takeprofit), parseFloat(stoploss));
         }
     });
 
@@ -689,9 +740,9 @@ window.addEventListener('load', () => {
         let leverage = 1;
         const absScore = Math.abs(score);
         if (signal !== 'hold') {
-            if (absScore >= 8.0) leverage = 10;
-            else if (absScore >= 6.0) leverage = 5;
-            else if (absScore >= 4.0) leverage = 3;
+            if (absScore >= 8.0) leverage = 20;
+            else if (absScore >= 6.0) leverage = 10;
+            else if (absScore >= 4.0) leverage = 5;
         }
         
         const lastAtr = last(atr) || currentPrice * 0.01;
@@ -903,7 +954,7 @@ window.addEventListener('load', () => {
         const tradeButtonHTML = result.signal !== 'hold' ? `<button data-pair="${result.pair}" data-signal="${result.signal}" class="start-trade-btn text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">このシグナルで取引</button>` : '';
 
         card.innerHTML = `
-            <div class="flex items-center justify-between border-b-2 border-gray-700 pb-4 mb-4">
+            <div class="flex flex-wrap items-center justify-between border-b-2 border-gray-700 pb-4 mb-4 gap-4">
                 <div class="flex items-center gap-4">
                     ${rankBadgeHTML}
                     <div>
@@ -911,7 +962,10 @@ window.addEventListener('load', () => {
                         <p class="text-sm text-gray-400">分析時価格: $${result.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</p>
                     </div>
                 </div>
-                ${tradeButtonHTML}
+                <div class="flex items-center gap-2">
+                    <button data-pair="${result.pair}" data-takeprofit="${result.takeProfit}" data-stoploss="${result.stopLoss}" class="view-chart-btn text-sm bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition duration-300">チャート表示</button>
+                    ${tradeButtonHTML}
+                </div>
             </div>
             <div class="grid md:grid-cols-2 gap-8">
                 <div class="flex flex-col gap-6">
@@ -997,7 +1051,32 @@ window.addEventListener('load', () => {
         panels.tradeHistory.appendChild(table);
     }
     
-    function exportHistoryToCSV() { /* ... */ }
+    function exportHistoryToCSV() {
+        if (analysisHistory.length === 0) {
+            createToast('エクスポートする履歴がありません。', 'info');
+            return;
+        }
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Timestamp,Pair,Signal,Score,CurrentPrice,StopLoss,TakeProfit,Leverage,KeyReasons\r\n";
+
+        analysisHistory.forEach(report => {
+            const timestamp = new Date(report.timestamp).toISOString();
+            report.results.forEach(res => {
+                const reasons = `"${res.keyReasons.join('; ').replace(/<[^>]*>?/gm, '')}"`; // Strip HTML tags
+                const row = [timestamp, res.pair, res.signal, res.score.toFixed(2), res.currentPrice, res.stopLoss, res.takeProfit, res.leverage, reasons].join(",");
+                csvContent += row + "\r\n";
+            });
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "analysis_history.csv");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        createToast('分析履歴をCSVでエクスポートしました。', 'success');
+    }
 
     // --- Calculation Functions ---
     const calculateEMA = (data, period) => {
@@ -1057,7 +1136,7 @@ window.addEventListener('load', () => {
     };
     const calculateBollingerBands = (data, period, stdDevMultiplier) => {
         const sma = calculateSMA(data, period);
-        if (sma.length === 0) return { upper: [], lower: [] };
+        if (sma.length === 0) return { upper: [], lower: [], middle: [] };
         const stdDevs = [];
         for (let i = 0; i < sma.length; i++) {
             const slice = data.slice(i, i + period);
@@ -1067,7 +1146,7 @@ window.addEventListener('load', () => {
         }
         const upper = sma.map((val, i) => val + stdDevs[i] * stdDevMultiplier);
         const lower = sma.map((val, i) => val - stdDevs[i] * stdDevMultiplier);
-        return { upper, lower };
+        return { upper, lower, middle: sma };
     };
     const calculateIchimoku = (highs, lows, closes, params) => {
         const { tenkan, kijun, senkouB } = params;
@@ -1117,6 +1196,281 @@ window.addEventListener('load', () => {
         return calculateSMA(tr, period);
     };
     
+    // --- Menu & Modal Logic ---
+    menuButton.addEventListener('click', () => menuDropdown.classList.toggle('hidden'));
+    document.addEventListener('click', (e) => {
+        if (!headerMenu.contains(e.target)) {
+            menuDropdown.classList.add('hidden');
+        }
+    });
+
+    const openModal = (modal) => modal.classList.remove('hidden');
+    const closeModal = (modal) => modal.classList.add('hidden');
+
+    menuSettings.addEventListener('click', (e) => { e.preventDefault(); openModal(settingsModal); menuDropdown.classList.add('hidden'); });
+    menuQa.addEventListener('click', (e) => { e.preventDefault(); openModal(qaModal); menuDropdown.classList.add('hidden'); });
+    menuNotifications.addEventListener('click', (e) => { e.preventDefault(); openModal(notificationsModal); menuDropdown.classList.add('hidden'); });
+
+    closeSettingsModal.addEventListener('click', () => closeModal(settingsModal));
+    closeQaModal.addEventListener('click', () => closeModal(qaModal));
+    closeNotificationsModal.addEventListener('click', () => closeModal(notificationsModal));
+    closeChartModal.addEventListener('click', () => closeModal(chartModal));
+
+    // --- Settings Modal ---
+    function populateSettingsForm() {
+        customizationForm.innerHTML = '';
+        apiKeyInput.value = analysisSettings.apiKey || '';
+
+        // Weights
+        let weightsHTML = '<h4 class="font-semibold text-white">テクニカル指標の重み</h4><div class="grid grid-cols-2 gap-4">';
+        for (const key in analysisSettings.weights) {
+            weightsHTML += `<div><label for="weight-${key}" class="block text-sm">${key.toUpperCase()}</label><input type="number" step="0.1" id="weight-${key}" data-type="weights" data-key="${key}" value="${analysisSettings.weights[key]}" class="w-full bg-gray-700 border border-gray-600 rounded-md py-1 px-2 text-white"></div>`;
+        }
+        weightsHTML += '</div>';
+        customizationForm.innerHTML += weightsHTML;
+
+        // Params
+        let paramsHTML = '<h4 class="font-semibold text-white mt-4">テクニカル指標のパラメータ</h4><div class="grid grid-cols-2 gap-4">';
+        for (const key in analysisSettings.params) {
+            paramsHTML += `<div><label for="param-${key}" class="block text-sm">${key}</label><input type="number" step="0.1" id="param-${key}" data-type="params" data-key="${key}" value="${analysisSettings.params[key]}" class="w-full bg-gray-700 border border-gray-600 rounded-md py-1 px-2 text-white"></div>`;
+        }
+        paramsHTML += '</div>';
+        customizationForm.innerHTML += paramsHTML;
+    }
+
+    saveSettingsBtn.addEventListener('click', () => {
+        analysisSettings.apiKey = apiKeyInput.value.trim();
+        document.querySelectorAll('#customization-form input').forEach(input => {
+            const { type, key } = input.dataset;
+            analysisSettings[type][key] = parseFloat(input.value);
+        });
+        localStorage.setItem('analysisSettings', JSON.stringify(analysisSettings));
+        createToast('設定を保存しました。', 'success');
+        closeModal(settingsModal);
+    });
+
+    runBacktestBtn.addEventListener('click', async () => {
+        backtestSpinner.classList.remove('hidden');
+        runBacktestBtn.disabled = true;
+        backtestResultsEl.classList.add('hidden');
+
+        const data = await fetchData('BTC', 'histohour', 24, 1);
+        if (!data) {
+            createToast('バックテストデータの取得に失敗しました。', 'error');
+            backtestSpinner.classList.add('hidden');
+            runBacktestBtn.disabled = false;
+            return;
+        }
+
+        let wins = 0;
+        let losses = 0;
+        let totalTrades = 0;
+
+        for (let i = 52; i < data.length; i++) {
+            const historicalSlice = data.slice(0, i);
+            const result = await runRealAnalysis('BTC', 'hour', analysisSettings, historicalSlice);
+            if (result && result.signal !== 'hold') {
+                totalTrades++;
+                const outcomePrice = data[i].close;
+                if ((result.signal === 'buy' && outcomePrice > result.currentPrice) || (result.signal === 'sell' && outcomePrice < result.currentPrice)) {
+                    wins++;
+                } else {
+                    losses++;
+                }
+            }
+        }
+
+        const winRate = totalTrades > 0 ? (wins / totalTrades * 100).toFixed(1) : 0;
+        backtestResultsEl.innerHTML = `
+            <p><strong>バックテスト結果 (BTC/USD 1時間足):</strong></p>
+            <p>総トレード機会: ${totalTrades}回</p>
+            <p>勝ちトレード: ${wins}回</p>
+            <p>負けトレード: ${losses}回</p>
+            <p class="text-xl font-bold ${winRate >= 50 ? 'text-green-400' : 'text-red-400'}">勝率: ${winRate}%</p>
+        `;
+        
+        backtestResultsEl.classList.remove('hidden');
+        backtestSpinner.classList.add('hidden');
+        runBacktestBtn.disabled = false;
+    });
+
+    // --- Q&A Modal ---
+    qaSubmitBtn.addEventListener('click', handleQASubmit);
+    qaInput.addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') handleQASubmit();
+    });
+
+    function handleQASubmit() {
+        const query = qaInput.value.toLowerCase();
+        let response = "申し訳ありません、よく分かりませんでした。";
+        if (query.includes("スコア") || query.includes("総合スコア")) {
+            response = "総合スコアは、複数のテクニカル指標を統合して算出される、現在の市場の勢いを表す数値です。正の値は買いが優勢、負の値は売りが優勢であることを示します。絶対値が大きいほど、その方向への勢いが強いと判断されます。";
+        } else if (query.includes("レバレッジ")) {
+            response = "推奨レバレッジは、総合スコアの絶対値に基づいて計算されます。スコアが高い（シグナルが強い）ほど、より高いレバレッジが推奨されますが、リスク管理はご自身の判断で行ってください。";
+        } else if (query.includes("apiキー") || query.includes("api key")) {
+            response = "APIキーは、CryptoCompareから価格データを取得するために必要です。設定モーダルからご自身の無料APIキーを設定してください。キーがないと、データの取得に失敗することがあります。";
+        }
+        qaResponseContainer.innerHTML = `<p>${response}</p>`;
+        qaInput.value = '';
+    }
+
+    // --- Notifications Modal ---
+    function populateNotificationSettings() {
+        desktopNotifyToggle.checked = notificationSettings.desktop;
+        soundNotifyToggle.checked = notificationSettings.sound;
+        notifyThresholdInput.value = notificationSettings.threshold;
+        notifyThresholdValue.textContent = notificationSettings.threshold.toFixed(1);
+    }
+
+    notifyThresholdInput.addEventListener('input', (e) => {
+        notifyThresholdValue.textContent = parseFloat(e.target.value).toFixed(1);
+    });
+
+    saveNotifySettingsBtn.addEventListener('click', () => {
+        notificationSettings.desktop = desktopNotifyToggle.checked;
+        notificationSettings.sound = soundNotifyToggle.checked;
+        notificationSettings.threshold = parseFloat(notifyThresholdInput.value);
+        localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
+        createToast('通知設定を保存しました。', 'success');
+        if (notificationSettings.desktop) {
+            Notification.requestPermission();
+        }
+        closeModal(notificationsModal);
+    });
+
+    function playNotificationSound() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + 1);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 1);
+    }
+
+    function showDesktopNotification(pair, signal, score) {
+        if (Notification.permission === 'granted') {
+            new Notification('強力な取引シグナル', {
+                body: `${pair}で強い${signal.toUpperCase()}シグナルが検出されました。\nスコア: ${score.toFixed(1)}`,
+                icon: 'https://www.cryptocompare.com/media/37746251/btc.png' // Example icon
+            });
+        }
+    }
+
+    // --- Chart Modal ---
+    const chartTimeframes = {
+        '1m': { endpoint: 'histominute', aggregate: 1, unit: 'minute' },
+        '5m': { endpoint: 'histominute', aggregate: 5, unit: 'minute' },
+        '15m': { endpoint: 'histominute', aggregate: 15, unit: 'minute' },
+        '1h': { endpoint: 'histohour', aggregate: 1, unit: 'hour' },
+        '4h': { endpoint: 'histohour', aggregate: 4, unit: 'hour' },
+        '1d': { endpoint: 'histoday', aggregate: 1, unit: 'day' },
+    };
+
+    async function renderChart(pair, timeframeKey, takeProfit, stopLoss) {
+        chartLoadingOverlay.classList.remove('hidden');
+
+        const timeframe = chartTimeframes[timeframeKey];
+        const data = await fetchData(pair, timeframe.endpoint, 200, timeframe.aggregate);
+        
+        chartLoadingOverlay.classList.add('hidden');
+
+        if (!data) {
+            createToast('チャートデータの取得に失敗', 'error');
+            return;
+        }
+
+        const closes = data.map(d => d.close);
+        const { params } = analysisSettings;
+        const ema12 = calculateEMA(closes, params.emaShort);
+        const ema26 = calculateEMA(closes, params.emaLong);
+        const bb = calculateBollingerBands(closes, params.bbPeriod, params.bbStdDev);
+        
+        const chartData = {
+            labels: data.map(d => new Date(d.time * 1000)),
+            datasets: [
+                { label: '価格', data: closes, borderColor: '#6366f1', backgroundColor: '#6366f1', tension: 0.1 },
+                { label: `EMA(${params.emaShort})`, data: ema12, borderColor: '#f9b115', borderWidth: 1, pointRadius: 0, },
+                { label: `EMA(${params.emaLong})`, data: ema26, borderColor: '#3b82f6', borderWidth: 1, pointRadius: 0, },
+                { label: 'BB Upper', data: bb.upper, borderColor: 'rgba(239, 68, 68, 0.5)', borderWidth: 1, pointRadius: 0, fill: false, },
+                { label: 'BB Lower', data: bb.lower, borderColor: 'rgba(34, 197, 94, 0.5)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(74, 222, 128, 0.1)', }
+            ]
+        };
+
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { type: 'time', time: { unit: timeframe.unit }, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: 'white' } },
+                y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: 'white' } }
+            },
+            plugins: {
+                legend: { labels: { color: 'white' } },
+                annotation: {
+                    annotations: {
+                        takeProfitLine: {
+                            type: 'line',
+                            yMin: takeProfit,
+                            yMax: takeProfit,
+                            borderColor: 'rgb(34, 197, 94)',
+                            borderWidth: 2,
+                            borderDash: [6, 6],
+                            label: { content: `利確: ${takeProfit.toLocaleString()}`, enabled: true, position: 'end', backgroundColor: 'rgba(34, 197, 94, 0.8)' }
+                        },
+                        stopLossLine: {
+                            type: 'line',
+                            yMin: stopLoss,
+                            yMax: stopLoss,
+                            borderColor: 'rgb(239, 68, 68)',
+                            borderWidth: 2,
+                            borderDash: [6, 6],
+                            label: { content: `損切り: ${stopLoss.toLocaleString()}`, enabled: true, position: 'end', backgroundColor: 'rgba(239, 68, 68, 0.8)' }
+                        }
+                    }
+                }
+            }
+        };
+
+        if (chartInstance) {
+            chartInstance.data = chartData;
+            chartInstance.options = chartOptions;
+            chartInstance.update();
+        } else {
+            const ctx = document.getElementById('chart-canvas').getContext('2d');
+            chartInstance = new Chart(ctx, { type: 'line', data: chartData, options: chartOptions });
+        }
+    }
+
+    function showChartModal(pair, takeProfit, stopLoss) {
+        openModal(chartModal);
+        document.getElementById('chart-modal-title').textContent = `${pair}/USD チャート分析`;
+        
+        chartTimeframeSelector.innerHTML = '';
+        Object.keys(chartTimeframes).forEach(key => {
+            const button = document.createElement('button');
+            button.textContent = key;
+            button.className = 'timeframe-btn';
+            button.dataset.timeframe = key;
+            button.onclick = () => {
+                chartTimeframeSelector.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                renderChart(pair, key, takeProfit, stopLoss);
+            };
+            chartTimeframeSelector.appendChild(button);
+        });
+
+        // Set default active button and render initial chart
+        const defaultTimeframe = '1h';
+        chartTimeframeSelector.querySelector(`[data-timeframe="${defaultTimeframe}"]`).classList.add('active');
+        renderChart(pair, defaultTimeframe, takeProfit, stopLoss);
+    }
+    
     // --- Initialization ---
     async function initializePriceTicker() {
         TICKER_PAIRS.forEach(symbol => {
@@ -1137,6 +1491,7 @@ window.addEventListener('load', () => {
     }
 
     async function updateTickerPrices() {
+        if (!analysisSettings.apiKey) return;
         const priceData = await fetchCurrentPrice(TICKER_PAIRS);
         if (!priceData) return;
         TICKER_PAIRS.forEach(symbol => {
@@ -1166,7 +1521,10 @@ window.addEventListener('load', () => {
         updatePositionsUI();
         populateHistoryPanel();
         populateTradeHistoryPanel();
-        setInterval(() => performAnalysis(false), 20000); // Slower interval for dashboard
+        populateSettingsForm();
+        populateNotificationSettings();
+        updateAccuracyUI();
+        setInterval(verifySignals, 60000);
         setInterval(updateOpenPositions, 5000);
         performAnalysis(true);
     }
