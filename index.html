@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cryptocurrency Integrated Analysis Tool - 改良版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(-45deg, #111827, #1f2937, #374151, #4b5563);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+        @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .rank-badge { width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; color: white; flex-shrink: 0; }
+        .rank-1 { background-color: #f9b115; box-shadow: 0 0 15px #f9b115; }
+        .rank-2 { background-color: #adb5bd; box-shadow: 0 0 15px #adb5bd; }
+        .rank-3 { background-color: #cd7f32; box-shadow: 0 0 15px #cd7f32; }
+        .tab-button.active { color: white; border-color: #6366f1; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4b5563; transition: .4s; border-radius: 28px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #4f46e5; }
+        input:checked + .slider:before { transform: translateX(22px); }
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+        .toast { background-color: #1f2937; color: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-left: 4px solid; margin-bottom: 10px; opacity: 0; transform: translateX(100%); animation: slideIn 0.5s forwards; }
+        .toast.success { border-color: #22c55e; } .toast.error { border-color: #ef4444; } .toast.info { border-color: #3b82f6; }
+        @keyframes slideIn { to { opacity: 1; transform: translateX(0); } }
+        
+        /* Sentiment Meter */
+        .meter-container { width: 200px; height: 100px; position: relative; }
+        .meter-bg, .meter-value { width: 200px; height: 100px; border-radius: 100px 100px 0 0; position: absolute; top: 0; left: 0; }
+        .meter-bg { background: linear-gradient(to right, #ef4444, #facc15, #22c55e); }
+        .meter-value { background-color: #1f2937; clip-path: polygon(50% 100%, 0 100%, 0 0, 100% 0, 100% 100%); }
+        .meter-pointer { width: 2px; height: 95px; background-color: white; position: absolute; bottom: 0; left: 50%; transform-origin: bottom center; transition: transform 0.5s ease-out; }
+        .meter-center { width: 15px; height: 15px; background-color: white; border-radius: 50%; position: absolute; bottom: -7.5px; left: 50%; transform: translateX(-50%); }
+        
+        @keyframes flash-yellow {
+            0%, 100% { border-color: #4b5563; }
+            50% { border-color: #fbbf24; box-shadow: 0 0 15px #fbbf24; }
+        }
+        .signal-changed {
+            animation: flash-yellow 1.5s infinite;
+        }
+        
+        /* Price Ticker */
+        .price-ticker {
+            overflow: hidden;
+            position: relative;
+            background: rgba(17, 24, 39, 0.8);
+            border-bottom: 1px solid #374151;
+            padding: 0.5rem 0;
+        }
+        .ticker-wrap {
+            width: 100%;
+            display: flex;
+        }
+        .ticker-container {
+            display: flex;
+            animation: ticker-scroll 60s linear infinite;
+        }
+        .ticker-item {
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            white-space: nowrap;
+            font-size: 0.875rem;
+        }
+        @keyframes ticker-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        .progress-bar-bg {
+            background-color: #374151;
+            border-radius: 9999px;
+            height: 8px;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.3s ease-in-out;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 0.5rem; }
+            h1 { font-size: 1.875rem; }
+            .meter-container { width: 150px; height: 75px; }
+            .meter-bg, .meter-value { width: 150px; height: 75px; }
+            .meter-pointer { height: 70px; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+    <div id="toast-container"></div>
+    
+    <!-- Price Ticker -->
+    <div class="price-ticker">
+        <div class="ticker-wrap">
+            <div id="price-ticker-container" class="ticker-container">
+                <!-- Ticker items will be duplicated by JS -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="container mx-auto p-4 max-w-5xl">
+        <header class="text-center mb-8 relative">
+            <h1 class="text-4xl font-bold text-white mb-2">Integrated Analysis Tool</h1>
+            <p class="text-gray-400">デイトレードダッシュボードと詳細分析エンジンを統合</p>
+            <div id="header-menu" class="absolute top-0 right-0">
+                <button id="menu-button" class="p-2 rounded-md hover:bg-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
+                </button>
+                <div id="menu-dropdown" class="absolute right-0 mt-2 w-48 bg-gray-800 rounded-md shadow-lg z-20 hidden">
+                    <a href="#" id="menu-settings" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">設定＆バックテスト</a>
+                    <a href="#" id="menu-notifications" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">通知設定</a>
+                    <a href="#" id="menu-qa" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Q&A ヘルプ</a>
+                </div>
+            </div>
+        </header>
+        <main id="main-content">
+             <!-- Quick Price View -->
+            <div id="quick-price-view" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+                <!-- Quick price items will be populated by JS -->
+            </div>
+
+            <!-- Daytrade Dashboard -->
+            <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg mb-8 border border-gray-700">
+                <h2 class="text-2xl font-bold text-white mb-4 text-center">デイトレード・ダッシュボード</h2>
+                <div class="flex flex-col md:flex-row items-center justify-around gap-6">
+                    <div class="flex flex-col items-center">
+                        <h3 class="text-lg font-semibold text-gray-400 mb-2">市場センチメント (BTC)</h3>
+                        <div class="meter-container">
+                            <div class="meter-bg"></div>
+                            <div class="meter-value"></div>
+                            <div id="meter-pointer" class="meter-pointer"></div>
+                            <div class="meter-center"></div>
+                        </div>
+                        <p id="sentiment-text" class="mt-2 font-bold text-xl text-white">分析中...</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <button id="dashboard-buy-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-10 rounded-lg text-2xl transition-transform transform hover:scale-105">BUY</button>
+                        <button id="dashboard-sell-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-10 rounded-lg text-2xl transition-transform transform hover:scale-105">SELL</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="bg-gray-800/50 backdrop-blur-sm p-4 rounded-xl shadow-lg mb-8 border border-gray-700">
+                 <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div class="w-full md:w-auto">
+                        <label for="timeframe-select" class="block text-sm font-semibold text-gray-400 mb-1">分析時間足</label>
+                        <select id="timeframe-select" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="day">日足</option>
+                            <option value="4hour">4時間足</option>
+                            <option value="hour">1時間足</option>
+                            <option value="minute" selected>1分足</option>
+                        </select>
+                    </div>
+                    <button id="run-analysis" class="w-full md:w-1/2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center text-lg shadow-lg hover:shadow-indigo-500/50 transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span id="button-text">総合分析を実行</span>
+                    </button>
+                    <div class="flex items-center gap-4 text-white">
+                        <label for="auto-refresh-toggle" class="font-semibold">自動更新</label>
+                        <label class="switch"><input type="checkbox" id="auto-refresh-toggle"><span class="slider"></span></label>
+                        <div id="countdown-timer" class="text-sm text-gray-400 w-28"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Open Positions Section -->
+            <div id="positions-section" class="mb-8 hidden">
+                <h2 class="text-2xl font-bold text-white mb-4">保有ポジション</h2>
+                <div id="positions-container" class="space-y-4"></div>
+            </div>
+
+            <!-- Main Content Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2">
+                    <!-- Tabs -->
+                    <div class="mb-6 flex border-b border-gray-700">
+                        <button id="tab-ranking" class="tab-button active px-4 py-2 text-white border-b-2 border-indigo-500 font-semibold">ランキング</button>
+                        <button id="tab-all" class="tab-button px-4 py-2 text-gray-400 border-b-2 border-transparent font-semibold">全通貨ペア</button>
+                        <button id="tab-history" class="tab-button px-4 py-2 text-gray-400 border-b-2 border-transparent font-semibold">分析履歴</button>
+                        <button id="tab-trade-history" class="tab-button px-4 py-2 text-gray-400 border-b-2 border-transparent font-semibold">取引履歴</button>
+                    </div>
+                    <!-- Tab Content -->
+                    <div id="tab-content">
+                        <div id="ranking-panel" class="space-y-6"></div>
+                        <div id="all-pairs-panel" class="hidden space-y-6"></div>
+                        <div id="history-panel" class="hidden space-y-8"></div>
+                        <div id="trade-history-panel" class="hidden space-y-4"></div>
+                    </div>
+                </div>
+                <!-- Accuracy Tracker Sidebar -->
+                <div class="lg:col-span-1">
+                    <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-700 sticky top-4">
+                        <h2 class="text-2xl font-bold text-white mb-4 text-center">シグナル正答率</h2>
+                        <div class="text-center mb-4"><p id="accuracy-rate" class="text-5xl font-bold text-indigo-400">---</p></div>
+                        <div class="space-y-3 text-sm">
+                            <div class="flex justify-between items-center bg-gray-700/50 p-3 rounded-lg"><span class="font-semibold text-gray-300">検証済みシグナル数:</span><span id="total-verified" class="font-bold text-white">0</span></div>
+                            <div class="flex justify-between items-center bg-gray-700/50 p-3 rounded-lg"><span class="font-semibold text-green-400">成功シグナル数:</span><span id="successful-signals" class="font-bold text-white">0</span></div>
+                            <div class="flex justify-between items-center bg-gray-700/50 p-3 rounded-lg"><span class="font-semibold text-red-400">失敗シグナル数:</span><span id="failed-signals" class="font-bold text-white">0</span></div>
+                        </div>
+                        <button id="reset-history-btn" class="w-full mt-4 text-xs bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg transition-colors">全履歴をリセット</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Modals -->
+        <div id="trade-entry-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-sm border border-gray-700">
+                <div class="p-6 space-y-4">
+                    <h3 id="trade-entry-title" class="text-xl font-bold text-white text-center"></h3>
+                    <div>
+                        <label for="trade-amount" class="block text-sm font-semibold text-gray-400 mb-1">取引金額 (円)</label>
+                        <input type="number" id="trade-amount" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white" placeholder="例: 100000">
+                    </div>
+                    <div class="flex gap-4">
+                        <button id="cancel-trade-btn" class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg">キャンセル</button>
+                        <button id="confirm-trade-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">確定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-700">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">設定＆バックテスト</h3><button id="close-settings-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="p-6 overflow-y-auto text-gray-300 space-y-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-white mb-4">APIキー設定</h3>
+                        <div class="space-y-2">
+                            <label for="api-key-input" class="block text-sm font-semibold text-gray-400">CryptoCompare API Key</label>
+                            <input type="text" id="api-key-input" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white" placeholder="ここにAPIキーを貼り付け">
+                            <p class="text-xs text-gray-500">APIキーは <a href="https://www.cryptocompare.com/cryptopian/api-keys" target="_blank" class="text-indigo-400 hover:underline">CryptoCompareサイト</a> で無料で取得できます。</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white mb-4">分析ロジックのカスタマイズ</h3>
+                        <div id="customization-form" class="space-y-4"></div>
+                        <button id="save-settings-btn" class="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">設定を保存</button>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white mb-4">バックテスト (過去24時間)</h3>
+                        <button id="run-backtest-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg mb-4 flex items-center justify-center">
+                            <svg id="backtest-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            バックテスト実行
+                        </button>
+                        <div id="backtest-results" class="hidden space-y-2 text-center"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="qa-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-700">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">Q&A ヘルプ</h3><button id="close-qa-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="p-6 overflow-y-auto text-gray-300">
+                    <h3 class="text-xl font-bold text-white mb-4">AIヘルプアシスタント</h3>
+                    <p class="text-gray-400 mb-4">このツールや仮想通貨に関する質問を入力してください。</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="qa-input" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="例: 総合スコアって何？">
+                        <button id="qa-submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">質問</button>
+                    </div>
+                    <div id="qa-response-container" class="mt-4 p-4 bg-gray-900/50 rounded-lg min-h-[100px]"></div>
+                </div>
+            </div>
+        </div>
+        <div id="notifications-modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 rounded-xl shadow-xl w-full max-w-md border border-gray-700">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700"><h3 class="text-lg font-bold text-white">通知設定</h3><button id="close-notifications-modal" class="text-gray-400 hover:text-white">&times;</button></div>
+                <div class="p-6 space-y-4 text-gray-300">
+                    <div class="flex items-center justify-between">
+                        <label for="desktop-notify-toggle">デスクトップ通知</label>
+                        <label class="switch"><input type="checkbox" id="desktop-notify-toggle"><span class="slider"></span></label>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <label for="sound-notify-toggle">通知音</label>
+                        <label class="switch"><input type="checkbox" id="sound-notify-toggle"><span class="slider"></span></label>
+                    </div>
+                    <div>
+                        <label for="notify-threshold" class="block text-sm font-semibold mb-1">通知スコア閾値</label>
+                        <input type="range" id="notify-threshold" min="4" max="10" step="0.5" class="w-full">
+                        <p class="text-center text-sm text-gray-400">スコア <span id="notify-threshold-value"></span> 以上で通知</p>
+                    </div>
+                    <button id="save-notify-settings-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">設定を保存</button>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="text-center mt-8 text-xs text-gray-500"><p>※これは投資助言ではありません。ご自身の判断で取引を行ってください。</p></footer>
+    </div>
+<script>
+window.addEventListener('load', () => {
+    // --- Element Declarations ---
+    const runAnalysisBtn = document.getElementById('run-analysis');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const buttonText = document.getElementById('button-text');
+    const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
+    const countdownTimerEl = document.getElementById('countdown-timer');
+    const timeframeSelect = document.getElementById('timeframe-select');
+    const tabs = { 
+        ranking: document.getElementById('tab-ranking'), 
+        all: document.getElementById('tab-all'),
+        history: document.getElementById('tab-history'),
+        tradeHistory: document.getElementById('tab-trade-history') 
+    };
+    const panels = { 
+        ranking: document.getElementById('ranking-panel'), 
+        all: document.getElementById('all-pairs-panel'),
+        history: document.getElementById('history-panel'),
+        tradeHistory: document.getElementById('trade-history-panel')
+    };
+    const positionsSection = document.getElementById('positions-section');
+    const positionsContainer = document.getElementById('positions-container');
+    const accuracyRateEl = document.getElementById('accuracy-rate');
+    const totalVerifiedEl = document.getElementById('total-verified');
+    const successfulSignalsEl = document.getElementById('successful-signals');
+    const failedSignalsEl = document.getElementById('failed-signals');
+    const resetHistoryBtn = document.getElementById('reset-history-btn');
+    const toastContainer = document.getElementById('toast-container');
+    const meterPointer = document.getElementById('meter-pointer');
+    const sentimentText = document.getElementById('sentiment-text');
+    const dashboardBuyBtn = document.getElementById('dashboard-buy-btn');
+    const dashboardSellBtn = document.getElementById('dashboard-sell-btn');
+    const priceTickerContainer = document.getElementById('price-ticker-container');
+    const quickPriceView = document.getElementById('quick-price-view');
+
+    // Menu and Modals
+    const headerMenu = document.getElementById('header-menu');
+    const menuButton = document.getElementById('menu-button');
+    const menuDropdown = document.getElementById('menu-dropdown');
+    const menuSettings = document.getElementById('menu-settings');
+    const menuQa = document.getElementById('menu-qa');
+    const menuNotifications = document.getElementById('menu-notifications');
+    const settingsModal = document.getElementById('settings-modal');
+    const qaModal = document.getElementById('qa-modal');
+    const notificationsModal = document.getElementById('notifications-modal');
+    const closeSettingsModal = document.getElementById('close-settings-modal');
+    const closeQaModal = document.getElementById('close-qa-modal');
+    const closeNotificationsModal = document.getElementById('close-notifications-modal');
+    const customizationForm = document.getElementById('customization-form');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const apiKeyInput = document.getElementById('api-key-input');
+    const runBacktestBtn = document.getElementById('run-backtest-btn');
+    const backtestResultsEl = document.getElementById('backtest-results');
+    const backtestSpinner = document.getElementById('backtest-spinner');
+    const qaInput = document.getElementById('qa-input');
+    const qaSubmitBtn = document.getElementById('qa-submit');
+    const qaResponseContainer = document.getElementById('qa-response-container');
+    const tradeEntryModal = document.getElementById('trade-entry-modal');
+    const tradeEntryTitle = document.getElementById('trade-entry-title');
+    const tradeAmountInput = document.getElementById('trade-amount');
+    const cancelTradeBtn = document.getElementById('cancel-trade-btn');
+    const confirmTradeBtn = document.getElementById('confirm-trade-btn');
+    const desktopNotifyToggle = document.getElementById('desktop-notify-toggle');
+    const soundNotifyToggle = document.getElementById('sound-notify-toggle');
+    const notifyThresholdInput = document.getElementById('notify-threshold');
+    const notifyThresholdValue = document.getElementById('notify-threshold-value');
+    const saveNotifySettingsBtn = document.getElementById('save-notify-settings-btn');
+
+    // --- State Variables ---
+    const PAIRS_TO_ANALYZE = ['BTC', 'ETH', 'XRP', 'SOL', 'ADA', 'DOGE'];
+    const TICKER_PAIRS = ['BTC', 'ETH', 'XRP', 'SOL', 'ADA', 'DOGE', 'DOT', 'AVAX', 'MATIC', 'LTC'];
+    let autoRefreshInterval = null;
+    let countdownInterval = null;
+    let openPositions = JSON.parse(localStorage.getItem('openPositions')) || {};
+    let signalHistory = JSON.parse(localStorage.getItem('signalHistory')) || [];
+    let analysisHistory = JSON.parse(localStorage.getItem('analysisHistory')) || [];
+    let tradeHistory = JSON.parse(localStorage.getItem('tradeHistory')) || [];
+    let currentAnalysisScores = {};
+    let jpyRate = 150; // Default rate, will be updated
+    let audioContext;
+    let lastNotifiedSignal = {};
+    let analysisSettings = JSON.parse(localStorage.getItem('analysisSettings')) || {
+        apiKey: '17922c0f47beef7ca579bd2f0da8b8673599b5c08c22456ca54edeaf2c113f30',
+        weights: { ema: 1.5, macd: 1.5, rsi: 1.0, stoch: 1.0, bb: 1.0, ichimoku: 2.0, vwap: 2.0, chartPatterns: 2.5, atr: 1.0 },
+        params: {
+            rsiPeriod: 14, rsiOverbought: 70, rsiOversold: 30,
+            stochPeriod: 14, stochOverbought: 80, stochOversold: 20,
+            bbPeriod: 20, bbStdDev: 2,
+            emaShort: 12, emaLong: 26, macdSignal: 9,
+            tenkan: 9, kijun: 26, senkouB: 52,
+            signalThreshold: 2.5,
+            atrPeriod: 14,
+            stopLossMultiplier: 2,
+            takeProfitMultiplier: 3
+        }
+    };
+    let notificationSettings = JSON.parse(localStorage.getItem('notificationSettings')) || {
+        desktop: true,
+        sound: true,
+        threshold: 8.0
+    };
+
+    // --- Utility Functions ---
+    const createToast = (message, type = 'info') => {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+        setTimeout(() => toast.remove(), 5000);
+    };
+
+    // --- Core Functions ---
+    async function fetchData(symbol, endpoint, limit = 200, aggregate = 1) {
+        try {
+            const aggParam = aggregate > 1 ? `&aggregate=${aggregate}` : '';
+            const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
+            const url = `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${symbol}&tsym=USD&limit=${limit}${aggParam}${apiKeyParam}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            const data = await response.json();
+            if (data.Response === 'Error') throw new Error(data.Message);
+            return data.Data.Data;
+        } catch (error) {
+            console.error(`Fetch Error for ${symbol}:`, error);
+            createToast(`${symbol}のデータ取得エラー: ${error.message}`, 'error');
+            return null;
+        }
+    }
+
+    async function fetchCurrentPrice(symbols) {
+        try {
+            const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
+            const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symbols.join(',')}&tsyms=USD${apiKeyParam}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            const data = await response.json();
+            return data.RAW;
+        } catch (error) {
+            console.error(`Price Fetch Error:`, error);
+            return null;
+        }
+    }
+    
+    async function updateJpyRate() {
+        try {
+            const apiKeyParam = analysisSettings.apiKey ? `&api_key=${analysisSettings.apiKey}` : '';
+            const url = `https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=JPY${apiKeyParam}`;
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.JPY) {
+                jpyRate = data.JPY;
+            }
+        } catch (error) {
+            console.error("Failed to fetch JPY rate, using default.", error);
+        }
+    }
+
+    async function performAnalysis(showResults = true) {
+        if (!analysisSettings.apiKey) {
+            createToast('APIキーが設定されていません。設定画面から入力してください。', 'error');
+            return;
+        }
+        if (showResults) {
+            runAnalysisBtn.disabled = true;
+            loadingSpinner.classList.remove('hidden');
+            buttonText.textContent = '分析中...';
+            panels.ranking.innerHTML = '';
+            panels.all.innerHTML = '';
+        }
+
+        const selectedTimeframe = timeframeSelect.value;
+        const analysisPromises = PAIRS_TO_ANALYZE.map(pair => runRealAnalysis(pair, selectedTimeframe));
+        const allResults = await Promise.all(analysisPromises);
+        const validResults = allResults.filter(r => r !== null);
+
+        if (validResults.length > 0) {
+            validResults.forEach(result => {
+                const oldSignal = currentAnalysisScores[result.pair] ? (currentAnalysisScores[result.pair] >= analysisSettings.params.signalThreshold ? 'buy' : (currentAnalysisScores[result.pair] <= -analysisSettings.params.signalThreshold ? 'sell' : 'hold')) : 'hold';
+                if (result.signal !== 'hold' && oldSignal !== 'hold' && result.signal !== oldSignal) {
+                    const card = document.querySelector(`[data-card-pair="${result.pair}"]`);
+                    if (card) {
+                        card.classList.add('signal-changed');
+                        setTimeout(() => card.classList.remove('signal-changed'), 3000);
+                    }
+                }
+                currentAnalysisScores[result.pair] = result.score;
+            });
+
+            if (showResults) {
+                const report = { timestamp: Date.now(), results: validResults };
+                analysisHistory.unshift(report);
+                if (analysisHistory.length > 20) analysisHistory.pop();
+                localStorage.setItem('analysisHistory', JSON.stringify(analysisHistory));
+                populateHistoryPanel();
+
+                validResults.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+                const top3Results = validResults.slice(0, 3);
+                
+                panels.ranking.innerHTML = '';
+                top3Results.forEach((result, index) => {
+                    panels.ranking.appendChild(createReportCard(result, index + 1));
+                });
+                
+                panels.all.innerHTML = '';
+                validResults.forEach(result => {
+                    panels.all.appendChild(createReportCard(result, null));
+                });
+
+                const topSignal = validResults[0];
+                if (Math.abs(topSignal.score) >= notificationSettings.threshold && lastNotifiedSignal[topSignal.pair] !== topSignal.signal) {
+                    if (notificationSettings.sound) playNotificationSound();
+                    if (notificationSettings.desktop) showDesktopNotification(topSignal.pair, topSignal.signal, topSignal.score);
+                    lastNotifiedSignal[topSignal.pair] = topSignal.signal;
+                }
+            }
+            
+            const btcResult = validResults.find(r => r.pair === 'BTC');
+            if(btcResult) updateDashboard(btcResult);
+
+        } else if (showResults) {
+            panels.ranking.innerHTML = `<div class="text-center text-gray-500 py-10 bg-gray-800/50 rounded-xl"><p>有効な分析結果を取得できませんでした。</p></div>`;
+        }
+
+        if (showResults) {
+            runAnalysisBtn.disabled = false;
+            loadingSpinner.classList.add('hidden');
+            buttonText.textContent = '総合分析を実行';
+        }
+    }
+    
+    function updateDashboard(btcResult) {
+        const score = btcResult.score;
+        const angle = Math.max(-90, Math.min(90, score * 9));
+        meterPointer.style.transform = `rotate(${angle}deg)`;
+
+        if (score > 3) { sentimentText.textContent = "強い買い"; sentimentText.className = "mt-2 font-bold text-xl text-green-400"; } 
+        else if (score > 1) { sentimentText.textContent = "買い優勢"; sentimentText.className = "mt-2 font-bold text-xl text-green-300"; } 
+        else if (score < -3) { sentimentText.textContent = "強い売り"; sentimentText.className = "mt-2 font-bold text-xl text-red-400"; } 
+        else if (score < -1) { sentimentText.textContent = "売り優勢"; sentimentText.className = "mt-2 font-bold text-xl text-red-300"; } 
+        else { sentimentText.textContent = "中立"; sentimentText.className = "mt-2 font-bold text-xl text-yellow-400"; }
+    }
+
+    // --- Event Listeners ---
+    runAnalysisBtn.addEventListener('click', () => performAnalysis(true));
+    dashboardBuyBtn.addEventListener('click', () => showTradeEntryModal('BTC', 'buy'));
+    dashboardSellBtn.addEventListener('click', () => showTradeEntryModal('BTC', 'sell'));
+    autoRefreshToggle.addEventListener('change', () => {
+        if (autoRefreshToggle.checked) {
+            runAnalysisBtn.disabled = true;
+            performAnalysis();
+            autoRefreshInterval = setInterval(performAnalysis, 60000);
+            startCountdown();
+        } else {
+            runAnalysisBtn.disabled = false;
+            clearInterval(autoRefreshInterval);
+            clearInterval(countdownInterval);
+            countdownTimerEl.textContent = '';
+        }
+    });
+
+    function startCountdown() {
+        let seconds = 60;
+        countdownTimerEl.textContent = `次の更新まで: ${seconds}秒`;
+        countdownInterval = setInterval(() => {
+            seconds--;
+            countdownTimerEl.textContent = `次の更新まで: ${seconds}秒`;
+            if (seconds <= 0) seconds = 60;
+        }, 1000);
+    }
+
+    Object.entries(tabs).forEach(([key, tab]) => {
+        tab.addEventListener('click', () => {
+            Object.values(panels).forEach(p => p.classList.add('hidden'));
+            Object.values(tabs).forEach(t => t.classList.remove('active'));
+            panels[key].classList.remove('hidden');
+            tab.classList.add('active');
+        });
+    });
+    
+    resetHistoryBtn.addEventListener('click', () => {
+        createToast('全履歴をリセットしました。', 'info');
+        signalHistory = []; analysisHistory = []; tradeHistory = [];
+        localStorage.removeItem('signalHistory');
+        localStorage.removeItem('analysisHistory');
+        localStorage.removeItem('tradeHistory');
+        updateAccuracyUI();
+        populateHistoryPanel();
+        populateTradeHistoryPanel();
+    });
+
+    document.body.addEventListener('click', (e) => {
+        if (e.target.matches('.start-trade-btn')) {
+            const { pair, signal } = e.target.dataset;
+            showTradeEntryModal(pair, signal);
+        }
+        if (e.target.matches('.close-position-btn')) {
+            const { pair } = e.target.dataset;
+            closePositionManually(pair);
+        }
+    });
+
+    // --- Analysis Logic ---
+    async function runRealAnalysis(pair, timeframe, settings = analysisSettings, historicalData) {
+        let endpoint = 'histominute';
+        let aggregate = 1;
+        let limit = 200;
+        let verificationPeriod = 30 * 60 * 1000;
+        switch(timeframe) {
+            case 'day': endpoint = 'histoday'; verificationPeriod = 24 * 60 * 60 * 1000; break;
+            case '4hour': endpoint = 'histohour'; aggregate = 4; verificationPeriod = 4 * 60 * 60 * 1000; break;
+            case 'hour': endpoint = 'histohour'; verificationPeriod = 60 * 60 * 1000; break;
+        }
+
+        const data = historicalData || await fetchData(pair, endpoint, limit, aggregate);
+        if (!data || data.length < 52) return null;
+
+        let score = 0;
+        const keyReasons = [];
+        const closes = data.map(d => d.close);
+        const highs = data.map(d => d.high);
+        const lows = data.map(d => d.low);
+        const volumes = data.map(d => d.volumeto);
+        const last = (arr) => arr && arr.length > 0 ? arr[arr.length - 1] : undefined;
+        const prev = (arr) => arr && arr.length > 1 ? arr[arr.length - 2] : undefined;
+        const currentPrice = last(closes);
+        const { weights, params } = settings;
+
+        const ema12 = calculateEMA(closes, params.emaShort);
+        const ema26 = calculateEMA(closes, params.emaLong);
+        const macd = calculateMACD(ema12, ema26, params.macdSignal);
+        const rsi = calculateRSI(closes, params.rsiPeriod);
+        const stoch = calculateStochastic(closes, highs, lows, params.stochPeriod, 3);
+        const bb = calculateBollingerBands(closes, params.bbPeriod, params.bbStdDev);
+        const ichimoku = calculateIchimoku(highs, lows, closes, params);
+        const vwap = calculateVWAP(closes, highs, lows, volumes);
+        const atr = calculateATR(highs, lows, closes, params.atrPeriod);
+
+        if (prev(ema12) !== undefined && prev(ema26) !== undefined && last(ema12) !== undefined && last(ema26) !== undefined) {
+            if (prev(ema12) < prev(ema26) && last(ema12) > last(ema26)) { score += weights.ema; keyReasons.push('<span class="text-green-400">▲ 買い:</span> EMAゴールデンクロス'); }
+            else if (prev(ema12) > prev(ema26) && last(ema12) < last(ema26)) { score -= weights.ema; keyReasons.push('<span class="text-red-400">▼ 売り:</span> EMAデッドクロス'); }
+        }
+
+        if (prev(macd.macdLine) !== undefined && prev(macd.signalLine) !== undefined && last(macd.macdLine) !== undefined && last(macd.signalLine) !== undefined) {
+            if (prev(macd.macdLine) < prev(macd.signalLine) && last(macd.macdLine) > last(macd.signalLine)) { score += weights.macd; keyReasons.push('<span class="text-green-400">▲ 買い:</span> MACDゴールデンクロス'); }
+            else if (prev(macd.macdLine) > prev(macd.signalLine) && last(macd.macdLine) < last(macd.signalLine)) { score -= weights.macd; keyReasons.push('<span class="text-red-400">▼ 売り:</span> MACDデッドクロス'); }
+        }
+        
+        if (last(rsi) !== undefined) {
+            if (last(rsi) < params.rsiOversold) { score += weights.rsi; keyReasons.push(`<span class="text-green-400">▲ 買い:</span> RSI売られすぎ (${last(rsi).toFixed(1)})`); }
+            else if (last(rsi) > params.rsiOverbought) { score -= weights.rsi; keyReasons.push(`<span class="text-red-400">▼ 売り:</span> RSI買われすぎ (${last(rsi).toFixed(1)})`); }
+        }
+
+        if (last(stoch.k) !== undefined) {
+            if (last(stoch.k) < params.stochOversold) { score += weights.stoch; keyReasons.push(`<span class="text-green-400">▲ 買い:</span> ストキャスティクス売られすぎ (${last(stoch.k).toFixed(1)})`); }
+            else if (last(stoch.k) > params.stochOverbought) { score -= weights.stoch; keyReasons.push(`<span class="text-red-400">▼ 売り:</span> ストキャスティクス買われすぎ (${last(stoch.k).toFixed(1)})`); }
+        }
+        
+        if (last(closes) !== undefined && last(bb.lower) !== undefined && last(bb.upper) !== undefined) {
+            if (last(closes) < last(bb.lower)) { score += weights.bb; keyReasons.push('<span class="text-green-400">▲ 買い:</span> ボリンジャーバンド下限タッチ'); }
+            else if (last(closes) > last(bb.upper)) { score -= weights.bb; keyReasons.push('<span class="text-red-400">▼ 売り:</span> ボリンジャーバンド上限タッチ'); }
+        }
+
+        if (last(ichimoku.senkouA) !== undefined && last(ichimoku.senkouB) !== undefined && last(ichimoku.tenkan) !== undefined && last(ichimoku.kijun) !== undefined) {
+            if (currentPrice > last(ichimoku.senkouA) && currentPrice > last(ichimoku.senkouB) && last(ichimoku.tenkan) > last(ichimoku.kijun)) { score += weights.ichimoku; keyReasons.push('<span class="text-green-400">▲ 買い:</span> 一目均衡表・三役好転'); }
+            else if (currentPrice < last(ichimoku.senkouA) && currentPrice < last(ichimoku.senkouB) && last(ichimoku.tenkan) < last(ichimoku.kijun)) { score -= weights.ichimoku; keyReasons.push('<span class="text-red-400">▼ 売り:</span> 一目均衡表・三役逆転'); }
+        }
+
+        if (vwap > 0) {
+            if (currentPrice > vwap) { score += weights.vwap; keyReasons.push(`<span class="text-green-400">▲ 買い:</span> VWAPより上`); }
+            else { score -= weights.vwap; keyReasons.push(`<span class="text-red-400">▼ 売り:</span> VWAPより下`); }
+        }
+
+        const patternResult = detectChartPatterns(highs, lows, closes);
+        if (patternResult.signal !== 'none') {
+            const patternScore = patternResult.signal === 'buy' ? weights.chartPatterns : -weights.chartPatterns;
+            score += patternScore;
+            const patternColor = patternResult.signal === 'buy' ? 'text-green-400' : 'text-red-400';
+            const patternDirection = patternResult.signal === 'buy' ? '▲ 買い:' : '▼ 売り:';
+            keyReasons.push(`<span class="${patternColor}">${patternDirection}</span> チャートパターン (${patternResult.pattern})`);
+        }
+
+        if (keyReasons.length === 0) keyReasons.push('<span class="text-yellow-400">― 中立:</span> 明確な売買シグナルなし');
+
+        let signal = 'hold';
+        if (score >= params.signalThreshold) signal = 'buy';
+        if (score <= -params.signalThreshold) signal = 'sell';
+
+        let leverage = 1;
+        const absScore = Math.abs(score);
+        if (signal !== 'hold') {
+            if (absScore >= 8.0) leverage = 10;
+            else if (absScore >= 6.0) leverage = 5;
+            else if (absScore >= 4.0) leverage = 3;
+        }
+        
+        const lastAtr = last(atr) || currentPrice * 0.01;
+        const stopLoss = signal === 'buy' ? currentPrice - (lastAtr * params.stopLossMultiplier) : currentPrice + (lastAtr * params.stopLossMultiplier);
+        const takeProfit = signal === 'buy' ? currentPrice + (lastAtr * params.takeProfitMultiplier) : currentPrice - (lastAtr * params.takeProfitMultiplier);
+
+        if(signal !== 'hold' && !historicalData) {
+            signalHistory.push({ pair, signal, entryPrice: currentPrice, timestamp: Date.now(), status: 'pending', verificationPeriod });
+            saveSignalHistory();
+        }
+
+        return { pair, signal, score, keyReasons, stopLoss, takeProfit, leverage, currentPrice };
+    }
+    
+    // --- Chart Pattern Detection ---
+    function findPeaksAndTroughs(data, window = 5) {
+        const peaks = [], troughs = [];
+        const w = Math.floor(window / 2);
+        for (let i = w; i < data.length - w; i++) {
+            const slice = data.slice(i - w, i + w + 1);
+            const middleValue = data[i];
+            if (middleValue === Math.max(...slice)) peaks.push({ index: i, value: middleValue });
+            if (middleValue === Math.min(...slice)) troughs.push({ index: i, value: middleValue });
+        }
+        return { peaks, troughs };
+    }
+
+    function detectChartPatterns(highs, lows, closes) {
+        const { peaks } = findPeaksAndTroughs(highs, 10);
+        const { troughs } = findPeaksAndTroughs(lows, 10);
+        const currentPrice = closes[closes.length - 1];
+        const tolerance = 0.015;
+
+        if (peaks.length >= 2) {
+            const [p1, p2] = peaks.slice(-2);
+            if (p2.index > closes.length - 20 && Math.abs(p1.value - p2.value) / p1.value < tolerance) {
+                const interveningTrough = troughs.find(t => t.index > p1.index && t.index < p2.index);
+                if (interveningTrough && currentPrice < interveningTrough.value) return { signal: 'sell', pattern: 'ダブルトップ' };
+            }
+        }
+        if (troughs.length >= 2) {
+            const [t1, t2] = troughs.slice(-2);
+            if (t2.index > closes.length - 20 && Math.abs(t1.value - t2.value) / t1.value < tolerance) {
+                const interveningPeak = peaks.find(p => p.index > t1.index && p.index < t2.index);
+                if (interveningPeak && currentPrice > interveningPeak.value) return { signal: 'buy', pattern: 'ダブルボトム' };
+            }
+        }
+        return { signal: 'none', pattern: null };
+    }
+
+    // --- Accuracy & Trade History ---
+    function saveSignalHistory() { localStorage.setItem('signalHistory', JSON.stringify(signalHistory)); }
+    async function verifySignals() {
+        const now = Date.now();
+        let changed = false;
+        for (const signal of signalHistory) {
+            if (signal.status === 'pending' && now - signal.timestamp >= signal.verificationPeriod) {
+                const currentPriceData = await fetchCurrentPrice([signal.pair]);
+                if (!currentPriceData || !currentPriceData[signal.pair] || !currentPriceData[signal.pair].USD) continue;
+                const currentPrice = currentPriceData[signal.pair].USD.PRICE;
+                if ((signal.signal === 'buy' && currentPrice > signal.entryPrice) || (signal.signal === 'sell' && currentPrice < signal.entryPrice)) {
+                    signal.status = 'success';
+                } else {
+                    signal.status = 'failed';
+                }
+                changed = true;
+            }
+        }
+        if (changed) {
+            saveSignalHistory();
+            updateAccuracyUI();
+        }
+    }
+    function updateAccuracyUI() {
+        const verifiedSignals = signalHistory.filter(s => s.status !== 'pending');
+        const successful = verifiedSignals.filter(s => s.status === 'success').length;
+        const failed = verifiedSignals.filter(s => s.status === 'failed').length;
+        const total = verifiedSignals.length;
+        totalVerifiedEl.textContent = total;
+        successfulSignalsEl.textContent = successful;
+        failedSignalsEl.textContent = failed;
+        accuracyRateEl.textContent = total > 0 ? `${((successful / total) * 100).toFixed(1)}%` : '---';
+    }
+    
+    // --- Trade Simulation ---
+    async function showTradeEntryModal(pair, signal) {
+        const priceData = await fetchCurrentPrice([pair]);
+        if (!priceData || !priceData[pair] || !priceData[pair].USD) {
+            createToast(`${pair}の価格取得に失敗`, 'error');
+            return;
+        }
+        const price = priceData[pair].USD.PRICE;
+        tradeEntryTitle.textContent = `${pair} ${signal.toUpperCase()} @ $${price.toLocaleString()}`;
+        tradeAmountInput.value = '';
+        tradeEntryModal.classList.remove('hidden');
+        
+        confirmTradeBtn.onclick = () => {
+            const amountInJPY = parseFloat(tradeAmountInput.value);
+            if (amountInJPY > 0) {
+                const quantity = amountInJPY / (price * jpyRate);
+                startTrade(pair, signal, price, quantity);
+                tradeEntryModal.classList.add('hidden');
+            } else {
+                createToast('有効な金額を入力してください', 'error');
+            }
+        };
+    }
+    cancelTradeBtn.onclick = () => tradeEntryModal.classList.add('hidden');
+
+    function startTrade(pair, signal, entryPrice, amount) {
+        if (openPositions[pair]) { createToast(`${pair}は既に保有中`, 'error'); return; }
+        const riskAmount = entryPrice * 0.005;
+        const stopLoss = signal === 'buy' ? entryPrice - riskAmount : entryPrice + riskAmount;
+        const takeProfit = signal === 'buy' ? entryPrice + (riskAmount * 1.5) : entryPrice - (riskAmount * 1.5);
+        openPositions[pair] = { signal, entryPrice, stopLoss, takeProfit, currentPrice: entryPrice, amount: amount, pnl: 0, pnlPercent: 0, timestamp: Date.now() };
+        savePositions();
+        updatePositionsUI();
+        createToast(`${pair} ${signal.toUpperCase()}ポジション保有`, 'success');
+    }
+
+    function savePositions() { localStorage.setItem('openPositions', JSON.stringify(openPositions)); }
+
+    async function closePositionManually(pair) {
+        const priceData = await fetchCurrentPrice([pair]);
+        if (priceData && priceData[pair] && priceData[pair].USD) {
+            closePosition(pair, priceData[pair].USD.PRICE, '手動決済');
+        } else {
+            createToast(`${pair}の価格取得に失敗`, 'error');
+        }
+    }
+
+    function closePosition(pair, exitPrice, reason) {
+        const position = openPositions[pair];
+        if (!position) return;
+        const pnl = (exitPrice - position.entryPrice) * (position.signal === 'buy' ? 1 : -1) * position.amount;
+        const pnlPercent = ((exitPrice - position.entryPrice) / position.entryPrice) * 100 * (position.signal === 'buy' ? 1 : -1);
+        
+        tradeHistory.unshift({ pair, signal: position.signal, entryPrice: position.entryPrice, exitPrice, pnl: pnl.toFixed(2), pnlPercent: pnlPercent.toFixed(2), entryTime: position.timestamp, exitTime: Date.now(), reason, amount: position.amount });
+        if(tradeHistory.length > 50) tradeHistory.pop();
+        localStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
+        
+        delete openPositions[pair];
+        savePositions();
+        updatePositionsUI();
+        populateTradeHistoryPanel();
+        createToast(`${pair}を${reason}で決済`, 'info');
+    }
+
+    async function updateOpenPositions() {
+        if (Object.keys(openPositions).length === 0) return;
+        const pairs = Object.keys(openPositions);
+        const priceData = await fetchCurrentPrice(pairs);
+        if (!priceData) return;
+
+        for (const pair in openPositions) {
+            const pos = openPositions[pair];
+            if (priceData[pair] && priceData[pair].USD) {
+                const price = priceData[pair].USD.PRICE;
+                pos.currentPrice = price;
+                pos.pnl = (price - pos.entryPrice) * (pos.signal === 'buy' ? 1 : -1) * pos.amount;
+                pos.pnlPercent = ((price - pos.entryPrice) / pos.entryPrice) * 100 * (pos.signal === 'buy' ? 1 : -1);
+                if ((pos.signal === 'buy' && price >= pos.takeProfit) || (pos.signal === 'sell' && price <= pos.takeProfit)) closePosition(pair, price, '利確');
+                else if ((pos.signal === 'buy' && price <= pos.stopLoss) || (pos.signal === 'sell' && price >= pos.stopLoss)) closePosition(pair, price, '損切り');
+            }
+        }
+        updatePositionsUI();
+    }
+    
+    function updatePositionsUI() {
+        if (Object.keys(openPositions).length === 0) { positionsSection.classList.add('hidden'); return; }
+        positionsSection.classList.remove('hidden');
+        positionsContainer.innerHTML = '';
+        for (const pair in openPositions) {
+            const pos = openPositions[pair];
+            const pnlColor = pos.pnl >= 0 ? 'text-green-400' : 'text-red-400';
+            const card = document.createElement('div');
+            card.className = 'bg-gray-800/50 p-4 rounded-lg border border-gray-700';
+            card.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-lg text-white">${pair}/USD</span>
+                            <span class="px-2 py-1 text-xs rounded-full ${pos.signal === 'buy' ? 'bg-green-500' : 'bg-red-500'}">${pos.signal.toUpperCase()}</span>
+                        </div>
+                        <p class="text-xs text-gray-400">保有数量: ${pos.amount.toFixed(6)}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="font-bold text-lg ${pnlColor}">¥${(pos.pnl * jpyRate).toLocaleString('ja-JP', { maximumFractionDigits: 0 })} (${pos.pnlPercent.toFixed(2)}%)</p>
+                        <p class="text-xs text-gray-400">評価額: ¥${(pos.currentPrice * pos.amount * jpyRate).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}</p>
+                    </div>
+                </div>
+                <div class="text-xs mt-2 text-gray-500 flex justify-between items-center">
+                    <span>参入: $${pos.entryPrice.toLocaleString()} | 利確: $${pos.takeProfit.toLocaleString()} | 損切: $${pos.stopLoss.toLocaleString()}</span>
+                    <button data-pair="${pair}" class="close-position-btn text-xs bg-red-600 hover:bg-red-500 text-white py-1 px-2 rounded">ポジション決済</button>
+                </div>`;
+            positionsContainer.appendChild(card);
+        }
+    }
+
+    function createReportCard(result, rank) {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-700';
+        card.dataset.cardPair = result.pair;
+        const signalColorClass = result.signal === 'buy' ? 'text-green-400' : (result.signal === 'sell' ? 'text-red-400' : 'text-yellow-400');
+        const scoreColorClass = result.score > 0 ? 'bg-green-500' : 'bg-red-500';
+        const signalText = result.signal.toUpperCase();
+        const scoreWidth = Math.min(Math.abs(result.score) * 10, 100);
+        const rankBadgeHTML = rank ? `<span class="rank-badge rank-${rank}">${rank}</span>` : '';
+        const tradeButtonHTML = result.signal !== 'hold' ? `<button data-pair="${result.pair}" data-signal="${result.signal}" class="start-trade-btn text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">このシグナルで取引</button>` : '';
+
+        card.innerHTML = `
+            <div class="flex items-center justify-between border-b-2 border-gray-700 pb-4 mb-4">
+                <div class="flex items-center gap-4">
+                    ${rankBadgeHTML}
+                    <div>
+                        <h2 class="text-2xl font-bold text-white">${result.pair}/USD</h2>
+                        <p class="text-sm text-gray-400">分析時価格: $${result.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</p>
+                    </div>
+                </div>
+                ${tradeButtonHTML}
+            </div>
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="flex flex-col gap-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><h3 class="text-sm font-semibold text-gray-400 mb-1">総合シグナル</h3><div class="text-5xl font-extrabold ${signalColorClass}">${signalText}</div></div>
+                        <div><h3 class="text-sm font-semibold text-gray-400 mb-1">推奨レバレッジ</h3><div class="text-5xl font-bold ${signalColorClass}">x${result.leverage}</div></div>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-400 mb-2">総合スコア</h3>
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl font-bold ${signalColorClass}">${result.score.toFixed(1)}</span>
+                            <div class="w-full bg-gray-700 rounded-full h-2.5"><div class="${scoreColorClass} h-2.5 rounded-full" style="width: ${scoreWidth}%"></div></div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-400 mb-2">利確・損切り目安</h3>
+                        <div class="space-y-3">
+                            <div class="bg-gray-700 p-3 rounded-lg"><p class="text-xs text-green-400 font-semibold">利確価格</p><p class="text-xl font-bold text-white">$${result.takeProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</p></div>
+                            <div class="bg-gray-700 p-3 rounded-lg"><p class="text-xs text-red-400 font-semibold">損切り価格</p><p class="text-xl font-bold text-white">$${result.stopLoss.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</p></div>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold mb-3 text-white">分析根拠</h3>
+                    <ul class="space-y-2 text-gray-300 text-sm">${result.keyReasons.map(r => `<li>${r}</li>`).join('')}</ul>
+                </div>
+            </div>`;
+        return card;
+    }
+
+    // --- History Panels ---
+    function populateHistoryPanel() {
+        panels.history.innerHTML = '';
+        if (analysisHistory.length === 0) {
+            panels.history.innerHTML = `<div class="text-center text-gray-500 py-10"><p>分析履歴はありません。</p></div>`;
+            return;
+        }
+        const exportButton = document.createElement('button');
+        exportButton.onclick = exportHistoryToCSV;
+        exportButton.className = 'w-full mb-6 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg';
+        exportButton.textContent = '履歴をCSVでエクスポート';
+        panels.history.appendChild(exportButton);
+
+        analysisHistory.forEach(report => {
+            const reportEl = document.createElement('div');
+            const date = new Date(report.timestamp);
+            reportEl.innerHTML = `<h3 class="text-xl font-bold text-white mb-4 border-b border-gray-700 pb-2">${date.toLocaleString()} の分析結果</h3>`;
+            const resultsGrid = document.createElement('div');
+            resultsGrid.className = 'space-y-4';
+            report.results.sort((a,b) => Math.abs(b.score) - Math.abs(a.score)).slice(0,3).forEach((result, index) => {
+                resultsGrid.appendChild(createReportCard(result, index + 1));
+            });
+            reportEl.appendChild(resultsGrid);
+            panels.history.appendChild(reportEl);
+        });
+    }
+
+    function populateTradeHistoryPanel() {
+        panels.tradeHistory.innerHTML = '';
+        if (tradeHistory.length === 0) {
+            panels.tradeHistory.innerHTML = `<div class="text-center text-gray-500 py-10"><p>取引履歴はありません。</p></div>`;
+            return;
+        }
+        const table = document.createElement('table');
+        table.className = 'w-full text-sm text-left';
+        table.innerHTML = `
+            <thead class="text-xs text-gray-400 uppercase bg-gray-700/50">
+                <tr><th class="px-4 py-2">決済日時</th><th class="px-4 py-2">ペア</th><th class="px-4 py-2">種類</th><th class="px-4 py-2">数量</th><th class="px-4 py-2">損益(円)</th><th class="px-4 py-2">理由</th></tr>
+            </thead>
+            <tbody>
+            ${tradeHistory.map(trade => `
+                <tr class="border-b border-gray-700">
+                    <td class="px-4 py-2">${new Date(trade.exitTime).toLocaleString()}</td>
+                    <td class="px-4 py-2">${trade.pair}</td>
+                    <td class="px-4 py-2"><span class="${trade.signal === 'buy' ? 'text-green-400' : 'text-red-400'}">${trade.signal.toUpperCase()}</span></td>
+                    <td class="px-4 py-2">${trade.amount.toFixed(6)}</td>
+                    <td class="px-4 py-2 font-bold ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">¥${(trade.pnl * jpyRate).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}</td>
+                    <td class="px-4 py-2">${trade.reason}</td>
+                </tr>
+            `).join('')}
+            </tbody>
+        `;
+        panels.tradeHistory.appendChild(table);
+    }
+    
+    function exportHistoryToCSV() { /* ... */ }
+
+    // --- Calculation Functions ---
+    const calculateEMA = (data, period) => {
+        if (!data || data.length < period) return [];
+        const k = 2 / (period + 1);
+        let ema = [data[0]];
+        for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
+        return ema;
+    };
+    const calculateMACD = (ema12, ema26, signalPeriod) => {
+        if (ema12.length === 0 || ema26.length === 0) return { macdLine: [], signalLine: [] };
+        const macdLine = ema12.map((val, i) => val - ema26[i]);
+        const signalLine = calculateEMA(macdLine, signalPeriod);
+        return { macdLine, signalLine };
+    };
+    const calculateRSI = (data, period) => {
+        if (!data || data.length < period + 1) return [];
+        let rsi = [];
+        let avgGain = 0, avgLoss = 0;
+        for (let i = 1; i < data.length; i++) {
+            const diff = data[i] - data[i-1];
+            if (i <= period) {
+                if (diff > 0) avgGain += diff; else avgLoss -= diff;
+                if (i === period) { avgGain /= period; avgLoss /= period; }
+            } else {
+                avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+                avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+            }
+            if (i >= period) {
+                const rs = avgGain / (avgLoss || 1);
+                rsi.push(100 - (100 / (1 + rs)));
+            }
+        }
+        return rsi;
+    };
+    const calculateStochastic = (closes, highs, lows, period, kSlowing) => {
+        if (closes.length < period) return { k: [], d: [] };
+        const k = [];
+        for (let i = period - 1; i < closes.length; i++) {
+            const sliceLows = lows.slice(i - period + 1, i + 1);
+            const sliceHighs = highs.slice(i - period + 1, i + 1);
+            const lowestLow = Math.min(...sliceLows);
+            const highestHigh = Math.max(...sliceHighs);
+            k.push(100 * ((closes[i] - lowestLow) / (highestHigh - lowestLow || 1)));
+        }
+        const d = calculateSMA(k, kSlowing);
+        return { k, d };
+    };
+    const calculateSMA = (data, period) => {
+        if (data.length < period) return [];
+        const sma = [];
+        for (let i = period - 1; i < data.length; i++) {
+            const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+            sma.push(sum / period);
+        }
+        return sma;
+    };
+    const calculateBollingerBands = (data, period, stdDevMultiplier) => {
+        const sma = calculateSMA(data, period);
+        if (sma.length === 0) return { upper: [], lower: [] };
+        const stdDevs = [];
+        for (let i = 0; i < sma.length; i++) {
+            const slice = data.slice(i, i + period);
+            const mean = sma[i];
+            const sqDiff = slice.map(val => (val - mean) ** 2).reduce((a, b) => a + b, 0);
+            stdDevs.push(Math.sqrt(sqDiff / period));
+        }
+        const upper = sma.map((val, i) => val + stdDevs[i] * stdDevMultiplier);
+        const lower = sma.map((val, i) => val - stdDevs[i] * stdDevMultiplier);
+        return { upper, lower };
+    };
+    const calculateIchimoku = (highs, lows, closes, params) => {
+        const { tenkan, kijun, senkouB } = params;
+        if (closes.length < senkouB) return { tenkan: [], kijun: [], senkouA: [], senkouB: [] };
+        const tenkanSen = [], kijunSen = [], senkouSpanA = [], senkouSpanB = [];
+        for (let i = 0; i < closes.length; i++) {
+            if (i >= tenkan - 1) {
+                const slice = highs.slice(i - tenkan + 1, i + 1);
+                const sliceLows = lows.slice(i - tenkan + 1, i + 1);
+                tenkanSen.push((Math.max(...slice) + Math.min(...sliceLows)) / 2);
+            }
+            if (i >= kijun - 1) {
+                const slice = highs.slice(i - kijun + 1, i + 1);
+                const sliceLows = lows.slice(i - kijun + 1, i + 1);
+                kijunSen.push((Math.max(...slice) + Math.min(...sliceLows)) / 2);
+            }
+        }
+        for (let i = kijun - 1; i < closes.length; i++) {
+            if (tenkanSen[i - (tenkan-1)] !== undefined && kijunSen[i - (kijun-1)] !== undefined)
+                senkouSpanA.push((tenkanSen[i - (tenkan-1)] + kijunSen[i - (kijun-1)]) / 2);
+        }
+        for (let i = senkouB - 1; i < closes.length; i++) {
+             const slice = highs.slice(i - senkouB + 1, i + 1);
+             const sliceLows = lows.slice(i - senkouB + 1, i + 1);
+             senkouSpanB.push((Math.max(...slice) + Math.min(...sliceLows)) / 2);
+        }
+        return { tenkan: tenkanSen, kijun: kijunSen, senkouA: senkouSpanA, senkouB: senkouSpanB };
+    };
+    const calculateVWAP = (prices, highs, lows, volumes) => {
+        let cumulativePV = 0, cumulativeVolume = 0;
+        for (let i = 0; i < prices.length; i++) {
+            const typicalPrice = (highs[i] + lows[i] + prices[i]) / 3;
+            cumulativePV += typicalPrice * volumes[i];
+            cumulativeVolume += volumes[i];
+        }
+        return cumulativeVolume > 0 ? cumulativePV / cumulativeVolume : 0;
+    };
+    const calculateATR = (highs, lows, closes, period) => {
+        if (highs.length < period) return [];
+        let tr = [];
+        for (let i = 1; i < highs.length; i++) {
+            const tr1 = highs[i] - lows[i];
+            const tr2 = Math.abs(highs[i] - closes[i-1]);
+            const tr3 = Math.abs(lows[i] - closes[i-1]);
+            tr.push(Math.max(tr1, tr2, tr3));
+        }
+        return calculateSMA(tr, period);
+    };
+    
+    // --- Initialization ---
+    async function initializePriceTicker() {
+        TICKER_PAIRS.forEach(symbol => {
+            const quickItem = document.createElement('div');
+            quickItem.className = 'bg-gray-700/50 p-3 rounded-lg flex flex-col items-center';
+            quickItem.innerHTML = `<span class="font-bold text-white">${symbol}</span><span class="text-sm mt-1" id="price-${symbol}">---</span><span class="text-xs mt-1" id="change-${symbol}">---</span>`;
+            quickPriceView.appendChild(quickItem);
+        });
+
+        let tickerHTML = '';
+        TICKER_PAIRS.forEach(symbol => {
+            tickerHTML += `<div class="ticker-item"><span class="font-bold text-white mr-2">${symbol}/USD</span><span class="mr-2" id="ticker-price-${symbol}">---</span><span id="ticker-change-${symbol}">---</span></div>`;
+        });
+        priceTickerContainer.innerHTML = tickerHTML + tickerHTML;
+        
+        await updateTickerPrices();
+        setInterval(updateTickerPrices, 15000);
+    }
+
+    async function updateTickerPrices() {
+        const priceData = await fetchCurrentPrice(TICKER_PAIRS);
+        if (!priceData) return;
+        TICKER_PAIRS.forEach(symbol => {
+            const info = priceData[symbol]?.USD;
+            if (info && typeof info.PRICE !== 'undefined' && typeof info.CHANGEPCT24HOUR !== 'undefined') {
+                const price = info.PRICE;
+                const change = info.CHANGEPCT24HOUR;
+                const changeClass = change >= 0 ? 'text-green-400' : 'text-red-400';
+                const changeText = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
+
+                document.getElementById(`price-${symbol}`).textContent = `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`;
+                document.getElementById(`change-${symbol}`).textContent = changeText;
+                document.getElementById(`change-${symbol}`).className = `text-xs mt-1 ${changeClass}`;
+                
+                document.getElementById(`ticker-price-${symbol}`).textContent = `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`;
+                const tickerChangeEl = document.getElementById(`ticker-change-${symbol}`);
+                tickerChangeEl.textContent = changeText;
+                tickerChangeEl.className = changeClass;
+            }
+        });
+    }
+
+    function initialize() {
+        updateJpyRate();
+        setInterval(updateJpyRate, 60000 * 5);
+        initializePriceTicker();
+        updatePositionsUI();
+        populateHistoryPanel();
+        populateTradeHistoryPanel();
+        setInterval(() => performAnalysis(false), 20000); // Slower interval for dashboard
+        setInterval(updateOpenPositions, 5000);
+        performAnalysis(true);
+    }
+    
+    initialize();
+});
+</script>
+</body>
+</html>
